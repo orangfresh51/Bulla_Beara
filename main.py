@@ -376,3 +376,66 @@ class Explainer:
     """
     Generates short AI-ish explanations without any external model.
     This is deliberately deterministic and transparent.
+    """
+
+    def __init__(self, seed: bytes) -> None:
+        self._rng = random.Random(int.from_bytes(_sha256(seed + b"|explainer"), "big"))
+        self._palette = [
+            "liquidity wind", "trend gravity", "volatility surf", "risk compression",
+            "momentum spill", "mean reversion", "crowd mood", "gamma shimmer",
+            "tape strength", "breakout pressure", "capitulation shadow", "range magnet"
+        ]
+        self._verbs = ["tilts", "leans", "presses", "drifts", "snaps", "stabilizes", "accelerates", "cools"]
+        self._tones = ["clean", "noisy", "fragile", "robust", "euphoric", "cautious", "mechanical", "tight"]
+
+    def explain(self, price: List[float], vol: List[float], mood: List[float]) -> List[Explanation]:
+        if not price:
+            return [Explanation("empty", 0.0, "No data yet.")]
+
+        ema_f = _ema(price, 13)
+        ema_s = _ema(price, 55)
+        r = _rsi(price, 14)
+        sl = _slope(price, 34)
+        vz = _zscore(vol, 40) if vol else 0.0
+        mz = _zscore(mood, 50) if mood else 0.0
+        macd = IndicatorSuite.macd(price)
+        bb = IndicatorSuite.bollinger(price)
+        mom = IndicatorSuite.momentum(price, 20)
+        dd = IndicatorSuite.drawdown(price, 240)
+
+        # Normalize into -1..+1-ish signals
+        s_trend = _clamp((ema_f - ema_s) / _safe(ema_s) / 0.06, -1.0, 1.0)
+        s_rsi = _clamp((r - 50.0) / 18.0, -1.0, 1.0)
+        s_slope = _clamp(sl / 0.03, -1.0, 1.0)
+        s_vol = _clamp(vz / 2.0, -1.0, 1.0)
+        s_mood = _clamp(mz / 2.0, -1.0, 1.0)
+        s_macd = _clamp(macd["hist"] / _safe(abs(macd["macd"]) + 1e-9), -1.0, 1.0)
+        s_bb = _clamp((bb["pos"] - 0.5) / 0.5, -1.0, 1.0)
+        s_mom = _clamp(mom / 0.08, -1.0, 1.0)
+        s_dd = _clamp(dd / 0.15, -1.0, 0.0)
+
+        signals = [
+            ("trend", s_trend, f"EMA spread {s_trend:+.2f}"),
+            ("rsi", s_rsi, f"RSI tilt {s_rsi:+.2f}"),
+            ("slope", s_slope, f"trend slope {s_slope:+.2f}"),
+            ("vol", -s_vol, f"volatility pressure {-s_vol:+.2f}"),
+            ("mood", s_mood, f"mood skew {s_mood:+.2f}"),
+            ("macd", s_macd, f"MACD drift {s_macd:+.2f}"),
+            ("bands", s_bb, f"band position {s_bb:+.2f}"),
+            ("momentum", s_mom, f"momentum pulse {s_mom:+.2f}"),
+            ("drawdown", s_dd, f"drawdown anchor {s_dd:+.2f}"),
+        ]
+        signals.sort(key=lambda x: abs(x[1]), reverse=True)
+
+        out: List[Explanation] = []
+        for name, sc, short in signals[:6]:
+            theme = self._palette[(hash(name) + int(sc * 1000)) % len(self._palette)]
+            verb = self._verbs[(hash(name) ^ int(sc * 100)) % len(self._verbs)]
+            tone = self._tones[(hash(name) + int(abs(sc) * 1000)) % len(self._tones)]
+
+            direction = "bullish" if sc > 0.10 else ("bearish" if sc < -0.10 else "neutral")
+            strength = "strong" if abs(sc) > 0.65 else ("mild" if abs(sc) < 0.35 else "medium")
+
+            text = f"{theme} {verb} {direction} ({strength}, {tone}). {short}."
+            out.append(Explanation(label=name, score=float(sc), text=text))
+        return out
