@@ -250,3 +250,66 @@ class IndicatorEngine:
         s = 0.0
         if not (math.isfinite(ema_f) and math.isfinite(ema_s)):
             return 0.0
+        s += 0.55 if ema_f > ema_s else -0.42
+        if r > 52.0:
+            s += 0.40
+        elif r < 48.0:
+            s -= 0.35
+        if vz > 1.7:
+            s -= 0.55
+        if vz < -0.8:
+            s += 0.18
+        return _clamp(s, -1.0, 1.0)
+
+    def bull_bps(self) -> int:
+        ema_f = _ema(self.close, 13)
+        ema_s = _ema(self.close, 55)
+        r = _rsi(self.close, 14)
+        vz = _zscore(self.vol, 40)
+        mz = _zscore(self.mood, 50)
+        sl = _slope(self.close, 34)
+
+        base = 5000.0
+        ema_boost = _clamp((ema_f - ema_s) / _safe(ema_s), -0.06, 0.09) * 3800.0
+        rsi_boost = (r - 50.0) * 55.0
+        slope_boost = _clamp(sl, -0.03, 0.05) * 5200.0
+        vol_pen = _clamp(vz, -2.0, 3.5) * 410.0 * (1.0 if vz > 0 else 0.5)
+        mood_boost = _clamp(mz, -2.5, 3.0) * 460.0
+        reg_boost = self._regime_score() * 1200.0
+        noise = self._micro_noise() * 220.0
+
+        s = base + ema_boost + rsi_boost + slope_boost - vol_pen + mood_boost + reg_boost + noise
+        return int(round(_clamp(s, 0.0, 10000.0)))
+
+    def vol_bps(self) -> int:
+        vz = _zscore(self.vol, 40)
+        x = 5000.0 + _clamp(vz, -3.0, 3.0) * 1700.0
+        return int(round(_clamp(x, 0.0, 10000.0)))
+
+    def mood_bps(self) -> int:
+        if not self.mood:
+            return 5000
+        m = _median(self.mood[-200:])
+        return int(round(_clamp(m, 0.0, 10000.0)))
+
+
+class IndicatorSuite:
+    """
+    Extra indicator suite (kept offline / deterministic).
+    These are used for the "AI-ish lens" explanations and backtesting.
+    """
+
+    @staticmethod
+    def macd(xs: List[float], fast: int = 12, slow: int = 26, signal: int = 9) -> Dict[str, float]:
+        if not xs:
+            return {"macd": 0.0, "signal": 0.0, "hist": 0.0}
+        ema_f = _ema(xs, fast)
+        ema_s = _ema(xs, slow)
+        macd = ema_f - ema_s
+        # crude signal approximation by running EMA over a synthetic series of macd values
+        # (for small sizes, this behaves nicely enough for local dashboards)
+        series = []
+        for i in range(min(len(xs), 240)):
+            cut = xs[: len(xs) - (min(len(xs), 240) - 1 - i)]
+            series.append(_ema(cut, fast) - _ema(cut, slow))
+        sig = _ema(series, signal) if series else 0.0
