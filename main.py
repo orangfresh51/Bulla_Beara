@@ -439,3 +439,66 @@ class Explainer:
             text = f"{theme} {verb} {direction} ({strength}, {tone}). {short}."
             out.append(Explanation(label=name, score=float(sc), text=text))
         return out
+
+
+class Backtester:
+    """
+    Tiny backtester for local experimentation.
+    Strategy: use bullScoreBps threshold + volatility guard to decide exposure.
+    """
+
+    def __init__(self) -> None:
+        pass
+
+    @staticmethod
+    def run(pulses: List[Pulse], enter: int = 6200, exit: int = 4800, vol_guard: int = 8500) -> Dict[str, Any]:
+        if not pulses:
+            return {"ok": True, "n": 0, "equity": 1.0, "trades": 0, "maxDrawdown": 0.0, "notes": []}
+
+        eq = 1.0
+        peak = 1.0
+        max_dd = 0.0
+        pos = 0  # 0 cash, 1 long
+        entry_price = pulses[0].median_price
+        trades = 0
+        notes: List[str] = []
+
+        for i in range(1, len(pulses)):
+            p0 = pulses[i - 1]
+            p1 = pulses[i]
+            r = (p1.median_price - p0.median_price) / _safe(p0.median_price)
+
+            # Apply PnL if in position
+            if pos == 1:
+                eq *= (1.0 + r)
+
+            peak = max(peak, eq)
+            max_dd = min(max_dd, (eq - peak) / _safe(peak))
+
+            # Decision
+            if pos == 0:
+                if p1.bull_bps >= enter and p1.vol_bps <= vol_guard:
+                    pos = 1
+                    entry_price = p1.median_price
+                    trades += 1
+                    notes.append(f"enter@{p1.epoch} price={entry_price:.6f} bull={p1.bull_bps} vol={p1.vol_bps}")
+            else:
+                if p1.bull_bps <= exit or p1.vol_bps > vol_guard:
+                    pos = 0
+                    notes.append(f"exit@{p1.epoch} price={p1.median_price:.6f} bull={p1.bull_bps} vol={p1.vol_bps}")
+
+        return {
+            "ok": True,
+            "n": len(pulses),
+            "equity": eq,
+            "trades": trades,
+            "maxDrawdown": max_dd,
+            "enter": enter,
+            "exit": exit,
+            "volGuard": vol_guard,
+            "notes": notes[-30:],
+        }
+
+
+HELP_TEXT = """\
+Bulla_Beara — local dashboard API
