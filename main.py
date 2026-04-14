@@ -313,3 +313,66 @@ class IndicatorSuite:
             cut = xs[: len(xs) - (min(len(xs), 240) - 1 - i)]
             series.append(_ema(cut, fast) - _ema(cut, slow))
         sig = _ema(series, signal) if series else 0.0
+        return {"macd": macd, "signal": sig, "hist": macd - sig}
+
+    @staticmethod
+    def bollinger(xs: List[float], period: int = 20, k: float = 2.0) -> Dict[str, float]:
+        if not xs:
+            return {"mid": 0.0, "upper": 0.0, "lower": 0.0, "width": 0.0, "pos": 0.5}
+        a = xs[-min(period, len(xs)) :]
+        mid = _mean(a)
+        sd = _stdev(a)
+        upper = mid + k * sd
+        lower = mid - k * sd
+        width = (upper - lower) / _safe(mid)
+        x = xs[-1]
+        pos = 0.5 if upper == lower else _clamp((x - lower) / (upper - lower), 0.0, 1.0)
+        return {"mid": mid, "upper": upper, "lower": lower, "width": width, "pos": pos}
+
+    @staticmethod
+    def atr(hi: List[float], lo: List[float], cl: List[float], period: int = 14) -> float:
+        if len(cl) < 2 or len(hi) != len(lo) or len(lo) != len(cl):
+            return 0.0
+        tr = []
+        for i in range(1, len(cl)):
+            tr0 = hi[i] - lo[i]
+            tr1 = abs(hi[i] - cl[i - 1])
+            tr2 = abs(lo[i] - cl[i - 1])
+            tr.append(max(tr0, tr1, tr2))
+        return _ema(tr[-min(len(tr), period) :], min(period, len(tr))) if tr else 0.0
+
+    @staticmethod
+    def momentum(xs: List[float], lookback: int = 20) -> float:
+        if len(xs) <= lookback:
+            return 0.0
+        a = xs[-1]
+        b = xs[-1 - lookback]
+        if abs(b) < 1e-12:
+            return 0.0
+        return (a - b) / b
+
+    @staticmethod
+    def drawdown(xs: List[float], window: int = 240) -> float:
+        if not xs:
+            return 0.0
+        a = xs[-min(window, len(xs)) :]
+        peak = a[0]
+        dd = 0.0
+        for x in a:
+            if x > peak:
+                peak = x
+            dd = min(dd, (x - peak) / _safe(peak))
+        return dd
+
+
+@dataclasses.dataclass
+class Explanation:
+    label: str
+    score: float
+    text: str
+
+
+class Explainer:
+    """
+    Generates short AI-ish explanations without any external model.
+    This is deliberately deterministic and transparent.
