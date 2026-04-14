@@ -187,3 +187,66 @@ def _rand_addr(r: random.Random) -> str:
 
 @dataclasses.dataclass(frozen=True)
 class Pulse:
+    epoch: int
+    at: float
+    median_price: float
+    bull_bps: int
+    vol_bps: int
+    mood_bps: int
+    reveals: int
+    pulse_hash: str
+
+    def state(self) -> str:
+        if self.bull_bps <= 0:
+            return "UNKNOWN"
+        if self.bull_bps <= 3800:
+            return "BEAR"
+        if self.bull_bps >= 6200:
+            return "BULL"
+        return "SIDEWAYS"
+
+
+class IndicatorEngine:
+    def __init__(self, seed: bytes) -> None:
+        self._seed = seed
+        self._rng = random.Random(int.from_bytes(_sha256(seed), "big"))
+        self.close: List[float] = []
+        self.vol: List[float] = []
+        self.mood: List[float] = []
+
+    def ingest(self, price: float, volume: float, mood_bps: float) -> None:
+        self.close.append(float(price))
+        self.vol.append(float(volume))
+        self.mood.append(float(mood_bps))
+        if len(self.close) > 4096:
+            self.close = self.close[-4096:]
+            self.vol = self.vol[-4096:]
+            self.mood = self.mood[-4096:]
+
+    def snapshot(self) -> Dict[str, Any]:
+        return {
+            "n": len(self.close),
+            "emaFast": _ema(self.close, 13),
+            "emaSlow": _ema(self.close, 55),
+            "rsi": _rsi(self.close, 14),
+            "volZ": _zscore(self.vol, 40),
+            "moodZ": _zscore(self.mood, 50),
+            "trendSlope": _slope(self.close, 34),
+            "regime": self._regime_score(),
+            "microNoise": self._micro_noise(),
+        }
+
+    def _micro_noise(self) -> float:
+        t = len(self.close) * 1315423911
+        z = _mix64(t ^ int.from_bytes(self._seed[:8], "big"))
+        u = ((z >> 11) & ((1 << 53) - 1)) / float(1 << 53)
+        return (u - 0.5) * 2.0
+
+    def _regime_score(self) -> float:
+        ema_f = _ema(self.close, 13)
+        ema_s = _ema(self.close, 55)
+        r = _rsi(self.close, 14)
+        vz = _zscore(self.vol, 40)
+        s = 0.0
+        if not (math.isfinite(ema_f) and math.isfinite(ema_s)):
+            return 0.0
