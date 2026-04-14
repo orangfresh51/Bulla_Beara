@@ -124,3 +124,66 @@ def _rsi(xs: List[float], period: int) -> float:
         return 100.0
     rs = (gain / period) / (loss / period)
     return 100.0 - (100.0 / (1.0 + rs))
+
+
+def _slope(xs: List[float], window: int) -> float:
+    if len(xs) < 3:
+        return 0.0
+    n = min(window, len(xs))
+    a = xs[-n:]
+    sx = 0.0
+    sy = 0.0
+    sxx = 0.0
+    sxy = 0.0
+    for i, y in enumerate(a):
+        x = float(i)
+        sx += x
+        sy += y
+        sxx += x * x
+        sxy += x * y
+    den = n * sxx - sx * sx
+    if abs(den) < 1e-12:
+        return 0.0
+    b = (n * sxy - sx * sy) / den
+    base = a[-1]
+    if abs(base) < 1e-12:
+        base = 1.0
+    return b / base
+
+
+def _zscore(xs: List[float], window: int) -> float:
+    if not xs:
+        return 0.0
+    a = xs[-min(window, len(xs)) :]
+    m = _mean(a)
+    sd = _stdev(a)
+    if sd < 1e-12:
+        return 0.0
+    return (xs[-1] - m) / sd
+
+
+def _sigmoidish(x: float) -> float:
+    # squashes to 0..1
+    x = _clamp(x, -6.0, 6.0)
+    return 1.0 / (1.0 + math.exp(-x))
+
+
+def _safe(x: float, eps: float = 1e-12) -> float:
+    return x if abs(x) > eps else (1.0 if x >= 0 else -1.0)
+
+
+def _rand_addr(r: random.Random) -> str:
+    # 40 hex chars with mixed case
+    h = "".join(r.choice("0123456789abcdef") for _ in range(40))
+    # flip case deterministically on nibble parity
+    out = []
+    for i, c in enumerate(h):
+        if c in "abcdef" and ((i * 7 + ord(c)) % 3 == 0):
+            out.append(c.upper())
+        else:
+            out.append(c)
+    return "0x" + "".join(out)
+
+
+@dataclasses.dataclass(frozen=True)
+class Pulse:
