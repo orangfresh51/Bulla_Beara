@@ -1006,3 +1006,66 @@ class Handler(BaseHTTPRequestHandler):
                     last = self.server.book.sim_step()
                     if last is not None:
                         made += 1
+                self._json(200, {"ok": True, "requested": n, "pulsesMade": made, "last": (self.server.book._pulse_json(last) if last else None)})
+                return
+            if path == "/api/save":
+                obj = self._read_json() or {}
+                name = str(obj.get("name", "pulses"))
+                limit = int(obj.get("limit", 6000))
+                data = self.server.book.pulses(limit).get("pulses", [])
+                p = self.server.storage.save_json(name, {"meta": {"app": APP, "build": BUILD, "ts": time.time()}, "pulses": data})
+                self._json(200, {"ok": True, "path": str(p), "count": len(data)})
+                return
+            self._json(404, {"ok": False, "error": "unknown endpoint"})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e), "trace": traceback.format_exc().splitlines()[-10:]})
+
+    def _serve_file(self, rel: str) -> None:
+        root = self.server.web_root
+        target = (root / rel).resolve()
+        if not str(target).startswith(str(root.resolve())):
+            self._json(403, {"ok": False, "error": "forbidden"})
+            return
+        if not target.exists() or not target.is_file():
+            self._json(404, {"ok": False, "error": "not found"})
+            return
+        data = target.read_bytes()
+        ctype = _guess_type(target.name)
+        self._send(200, data, ctype)
+
+    def _try_serve(self, path: str) -> bool:
+        # allow serving /Analyz/... paths
+        p = path.lstrip("/")
+        root = self.server.web_root
+        target = (root / p).resolve()
+        if str(target).startswith(str(root.resolve())) and target.exists() and target.is_file():
+            self._serve_file(p)
+            return True
+        return False
+
+
+def _guess_type(name: str) -> str:
+    n = name.lower()
+    if n.endswith(".html"):
+        return "text/html; charset=utf-8"
+    if n.endswith(".css"):
+        return "text/css; charset=utf-8"
+    if n.endswith(".js"):
+        return "application/javascript; charset=utf-8"
+    if n.endswith(".json"):
+        return "application/json; charset=utf-8"
+    if n.endswith(".svg"):
+        return "image/svg+xml"
+    if n.endswith(".png"):
+        return "image/png"
+    return "application/octet-stream"
+
+
+def _parse_flags(argv: List[str]) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    for a in argv:
+        if not a.startswith("--"):
+            continue
+        t = a[2:]
+        if "=" in t:
+            k, v = t.split("=", 1)
