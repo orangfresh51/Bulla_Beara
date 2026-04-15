@@ -502,3 +502,66 @@ class Backtester:
 
 HELP_TEXT = """\
 Bulla_Beara — local dashboard API
+================================
+
+This server is intentionally self-contained:
+- No pip installs required
+- No private keys
+- No API tokens
+- No external network calls (other than the browser calling this server)
+
+Data model
+----------
+- "Pulse" is a local snapshot that resembles a compact bull/bear indicator tick.
+- Pulses can come from simulation (/api/sim/*) or ingestion (/api/ingest).
+
+Signals (AI-ish, but offline)
+-----------------------------
+- EMA spread (13 vs 55)
+- RSI(14)
+- trend slope over a window
+- z-scored "volume" and "mood"
+- MACD histogram proxy
+- Bollinger band position
+- momentum and drawdown anchors
+
+Backtest
+--------
+/api/backtest runs a toy strategy:
+- Enter long if bullScoreBps >= enter and volScoreBps <= volGuard
+- Exit if bullScoreBps <= exit or volScoreBps > volGuard
+
+Export
+------
+/api/export returns NDJSON for easy copy/paste into local scripts.
+
+Persistence
+-----------
+/api/save writes pulses to disk as JSON (local only).
+/api/load loads them back in.
+
+Notes
+-----
+This is a dashboard layer designed to accompany the Solidity contract `Bull_Time`.
+The contract uses commit/reveal feeds to mint epoch pulses onchain; this python app
+models a similar vibe for local visualization.
+
+Endpoint cheat-sheet
+-------------------
+GET  /api/health
+GET  /api/state
+GET  /api/pulses?limit=200
+POST /api/sim/step
+POST /api/sim/burst          body: {"n":240}
+POST /api/ingest             body: {"price":1.23,"volume":4567,"moodBps":5300}
+GET  /api/backtest?limit=800&enter=6200&exit=4800&volGuard=8500
+GET  /api/export?limit=2000  (NDJSON)
+POST /api/save               body: {"name":"pulses","limit":6000}
+GET  /api/load?name=pulses
+GET  /api/help
+
+Glossary (quick)
+----------------
+bullScoreBps:
+  0..10000 composite score. ~5000 is neutral. >6200 tends bullish. <3800 tends bearish.
+
