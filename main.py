@@ -754,3 +754,66 @@ class PulseBook:
                     continue
                 price = self._synthetic_price(epoch, f)
                 vol = self._synthetic_volume(epoch, f)
+                mood = self._synthetic_mood(epoch, f)
+                reveals.append((f, price, vol, mood))
+
+            p = None
+            if len(reveals) >= self._min_reveals:
+                p = self._finalize(epoch, reveals)
+                self._pulses.append(p)
+                if len(self._pulses) > 6000:
+                    self._pulses = self._pulses[-6000:]
+            self._epoch += 1
+            return p
+
+    def ingest(self, price: float, volume: float, mood_bps: float, epoch: Optional[int] = None) -> Pulse:
+        with self._lock:
+            if epoch is None:
+                epoch = self._epoch
+                self._epoch += 1
+
+            self._engine.ingest(price, volume, mood_bps)
+            bull = self._engine.bull_bps()
+            vol_bps = self._engine.vol_bps()
+            mood_bps_i = self._engine.mood_bps()
+            h = _sha256(f"pulse|{epoch}|{price:.8f}|{bull}|{vol_bps}|{mood_bps_i}|{BUILD}".encode())
+            p = Pulse(
+                epoch=int(epoch),
+                at=time.time(),
+                median_price=float(price),
+                bull_bps=int(bull),
+                vol_bps=int(vol_bps),
+                mood_bps=int(mood_bps_i),
+                reveals=1,
+                pulse_hash="0x" + _hex(h),
+            )
+            self._pulses.append(p)
+            return p
+
+    def _finalize(self, epoch: int, reveals: List[Tuple[str, float, float, float]]) -> Pulse:
+        # median by price
+        reveals = sorted(reveals, key=lambda x: x[1])
+        k = len(reveals)
+        if k % 2 == 1:
+            median_price = reveals[k // 2][1]
+            vol_p50 = reveals[k // 2][2]
+            mood_p50 = reveals[k // 2][3]
+        else:
+            median_price = 0.5 * (reveals[k // 2 - 1][1] + reveals[k // 2][1])
+            vol_p50 = reveals[k // 2 - 1][2]
+            mood_p50 = reveals[k // 2 - 1][3]
+
+        self._engine.ingest(median_price, vol_p50, mood_p50)
+        bull = self._engine.bull_bps()
+        vol_bps = self._engine.vol_bps()
+        mood_bps = self._engine.mood_bps()
+
+        # bind hash to ordered reveal set (gives stable fingerprint)
+        acc = _sha256(f"BB_PULSE|{epoch}|{k}|{median_price:.8f}|{vol_p50:.4f}|{mood_p50:.2f}|{BUILD}".encode())
+        for f, pr, vo, mo in reveals:
+            acc = _sha256(acc + f.encode() + f"|{pr:.8f}|{vo:.4f}|{mo:.2f}".encode())
+
+        return Pulse(
+            epoch=int(epoch),
+            at=time.time(),
+            median_price=float(median_price),
