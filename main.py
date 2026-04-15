@@ -565,3 +565,66 @@ Glossary (quick)
 bullScoreBps:
   0..10000 composite score. ~5000 is neutral. >6200 tends bullish. <3800 tends bearish.
 
+volScoreBps:
+  0..10000 volatility/turbulence score. High can mean choppy tape and false breakouts.
+
+moodScoreBps:
+  0..10000 sentiment proxy. It is a synthetic input here, but in real systems would come from
+  funding, positioning, social, or onchain flows.
+
+EMA:
+  Exponential moving average; weights recent values more.
+
+RSI:
+  Relative Strength Index; measures recent gain/loss balance.
+
+MACD:
+  Moving Average Convergence/Divergence; here we use a simple proxy.
+
+Bollinger bands:
+  Moving average plus/minus k standard deviations; position helps gauge extension.
+
+momentum:
+  Percentage move over a lookback window.
+
+drawdown:
+  How far price is below its recent peak.
+
+Why so verbose?
+--------------
+This project is intended to be easy to run offline and easy to modify.
+The help output doubles as a self-documenting reference for the UI.
+"""
+
+# A deliberately verbose glossary table (human-facing).
+GLOSSARY_TABLE = [
+    ("bullScoreBps", "Composite bull/bear score in basis points (0..10000)."),
+    ("volScoreBps", "Turbulence score in basis points (0..10000)."),
+    ("moodScoreBps", "Sentiment proxy in basis points (0..10000)."),
+    ("epoch", "A monotonically increasing index for pulses."),
+    ("pulseHash", "A stable fingerprint of a pulse, derived from inputs."),
+    ("enter", "Backtest: bullScore threshold for entering long."),
+    ("exit", "Backtest: bullScore threshold for exiting long."),
+    ("volGuard", "Backtest: avoid trades if volScore is too high."),
+    ("EMA", "Exponential Moving Average."),
+    ("RSI", "Relative Strength Index."),
+    ("MACD", "Moving Average Convergence/Divergence."),
+    ("Bands", "Bollinger bands derived from mean and standard deviation."),
+    ("Z-score", "Standard score over a window."),
+    ("Slope", "Linear regression slope over a window."),
+    ("Regime", "Compact blend of trend + momentum + volatility conditions."),
+    ("Drawdown", "Distance below the recent peak."),
+    ("Momentum", "Percent move over a lookback window."),
+    ("NDJSON", "Newline-delimited JSON, good for streaming/export."),
+    ("Ingest", "Push real data into the engine via /api/ingest."),
+    ("Autosim", "Background simulation loop for UI convenience."),
+    ("Export", "Dump pulses for offline analysis."),
+    ("Save/Load", "Persist and reload pulses on disk."),
+    ("Sim step", "Advance the simulator by one tick."),
+    ("Sim burst", "Advance the simulator by many ticks quickly."),
+    ("Feeder", "A contributor identity used in the simulation model."),
+    ("Median", "Robust midpoint across feeder submissions."),
+    ("Quorum", "Minimum number of reveals required to mint a pulse."),
+    ("Basis points", "1 bps = 0.01%. Scores use bps as a convenient integer scale."),
+    ("Window", "Lookback length used by indicators (EMA/RSI/Bands)."),
+    ("Autosim hz", "Background simulation frequency."),
