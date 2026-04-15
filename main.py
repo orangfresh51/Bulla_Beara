@@ -691,3 +691,66 @@ def _pulses_to_json(items: List[Pulse]) -> List[Dict[str, Any]]:
             "medianPrice": p.median_price,
             "bullScoreBps": p.bull_bps,
             "volScoreBps": p.vol_bps,
+            "moodScoreBps": p.mood_bps,
+            "revealsUsed": p.reveals,
+            "state": p.state(),
+            "pulseHash": p.pulse_hash,
+        }
+        for p in items
+    ]
+
+
+class PulseBook:
+    def __init__(self, seed: bytes, min_reveals: int = 5) -> None:
+        self._seed = seed
+        self._rng = random.Random(int.from_bytes(_sha256(seed + b"|pulsebook"), "big"))
+        self._min_reveals = int(min_reveals)
+        self._engine = IndicatorEngine(seed + b"|engine")
+        self._epoch = self._rng.randrange(20_000, 2_000_000)
+        self._feeders = self._make_feeders(9)
+        self._pulses: List[Pulse] = []
+        self._lock = threading.RLock()
+
+    def _make_feeders(self, n: int) -> List[str]:
+        r = random.Random(int.from_bytes(_sha256(self._seed + b"|feeders"), "big"))
+        out = []
+        for _ in range(n):
+            out.append(_rand_addr(r))
+        return out
+
+    def state(self) -> Dict[str, Any]:
+        with self._lock:
+            last = self._pulses[-1] if self._pulses else None
+            expl = Explainer(self._seed + b"|x").explain(self._engine.close, self._engine.vol, self._engine.mood)
+            return {
+                "ok": True,
+                "app": APP,
+                "style": STYLE,
+                "build": BUILD,
+                "motto": MOTTO,
+                "epoch": self._epoch,
+                "minReveals": self._min_reveals,
+                "feeders": list(self._feeders),
+                "lastPulse": (self._pulse_json(last) if last else None),
+                "engine": self._engine.snapshot(),
+                "explanations": [dataclasses.asdict(e) for e in expl],
+                "ts": time.time(),
+                "tsIso": _utc_iso(time.time()),
+            }
+
+    def pulses(self, limit: int = 200) -> Dict[str, Any]:
+        with self._lock:
+            lim = max(1, min(int(limit), 2000))
+            items = self._pulses[-lim:]
+            return {"ok": True, "pulses": [self._pulse_json(p) for p in items]}
+
+    def sim_step(self) -> Pulse | None:
+        with self._lock:
+            epoch = self._epoch
+            reveals = []
+            # random reveal subset
+            for f in self._feeders:
+                if self._rng.random() < 0.18:
+                    continue
+                price = self._synthetic_price(epoch, f)
+                vol = self._synthetic_volume(epoch, f)
