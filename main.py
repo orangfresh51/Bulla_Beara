@@ -817,3 +817,66 @@ class PulseBook:
             epoch=int(epoch),
             at=time.time(),
             median_price=float(median_price),
+            bull_bps=int(bull),
+            vol_bps=int(vol_bps),
+            mood_bps=int(mood_bps),
+            reveals=int(k),
+            pulse_hash="0x" + _hex(acc),
+        )
+
+    def _synthetic_price(self, epoch: int, feeder: str) -> float:
+        # smooth random walk with cyclical bull/bear phases
+        z = int.from_bytes(_sha256(f"px|{epoch}|{feeder}|{BUILD}".encode()), "big")
+        r = random.Random(_mix64(z & 0xFFFFFFFFFFFFFFFF))
+        base = 1.0 + (epoch % 1000) / 1000.0
+        wave = math.sin(epoch / 57.0) * 0.07 + math.sin(epoch / 19.0) * 0.02
+        drift = math.sin(epoch / 310.0) * 0.18
+        jitter = (r.random() - 0.5) * 0.03
+        price = max(0.0001, base + wave + drift + jitter)
+        return price
+
+    def _synthetic_volume(self, epoch: int, feeder: str) -> float:
+        z = int.from_bytes(_sha256(f"vol|{epoch}|{feeder}|{BUILD}".encode()), "big")
+        r = random.Random(_mix64((z >> 1) & 0xFFFFFFFFFFFFFFFF))
+        cyc = abs(math.sin(epoch / 23.0)) * 2300.0 + abs(math.sin(epoch / 111.0)) * 1700.0
+        noise = (r.random() ** 2) * 900.0
+        return 4200.0 + cyc + noise
+
+    def _synthetic_mood(self, epoch: int, feeder: str) -> float:
+        z = int.from_bytes(_sha256(f"mood|{epoch}|{feeder}|{BUILD}".encode()), "big")
+        r = random.Random(_mix64((z >> 2) & 0xFFFFFFFFFFFFFFFF))
+        phase = math.sin(epoch / 60.0) * 1200.0 + math.sin(epoch / 17.0) * 500.0
+        rand = (r.random() - 0.5) * 900.0
+        m = 5000.0 + phase + rand
+        return _clamp(m, 0.0, 10000.0)
+
+    def _pulse_json(self, p: Pulse) -> Dict[str, Any]:
+        return {
+            "epoch": p.epoch,
+            "at": p.at,
+            "atIso": _utc_iso(p.at),
+            "medianPrice": p.median_price,
+            "bullScoreBps": p.bull_bps,
+            "volScoreBps": p.vol_bps,
+            "moodScoreBps": p.mood_bps,
+            "revealsUsed": p.reveals,
+            "state": p.state(),
+            "pulseHash": p.pulse_hash,
+        }
+
+
+class ApiServer(ThreadingHTTPServer):
+    def __init__(self, addr: Tuple[str, int], handler_cls, book: PulseBook, web_root: Path) -> None:
+        super().__init__(addr, handler_cls)
+        self.book = book
+        self.web_root = web_root
+        self.storage = Storage((web_root / ".bulla_beara").resolve())
+
+
+class Handler(BaseHTTPRequestHandler):
+    server: ApiServer  # type: ignore[assignment]
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        # Keep logs minimal but present
+        sys.stderr.write("%s - - [%s] %s\n" % (self.address_string(), self.log_date_time_string(), fmt % args))
+
