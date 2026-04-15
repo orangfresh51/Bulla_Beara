@@ -628,3 +628,66 @@ GLOSSARY_TABLE = [
     ("Basis points", "1 bps = 0.01%. Scores use bps as a convenient integer scale."),
     ("Window", "Lookback length used by indicators (EMA/RSI/Bands)."),
     ("Autosim hz", "Background simulation frequency."),
+    ("Export NDJSON", "Newline-delimited JSON for streaming, grep, and quick parsing."),
+    ("Backtest equity", "Hypothetical compounding factor from the toy strategy."),
+    ("Max drawdown", "Worst peak-to-trough equity decline during backtest."),
+    ("Deterministic", "Same inputs => same outputs, useful for testing."),
+    ("Localhost", "127.0.0.1 loopback address for local-only servers."),
+    ("Port", "TCP port used by the API server (default 8899)."),
+    ("UI", "The Analyz interface served at /."),
+    ("Help", "Human-readable text served at /api/help."),
+    ("Health", "Basic liveness endpoint at /api/health."),
+    ("State", "Current engine state at /api/state."),
+    ("Pulses", "Recent pulse history at /api/pulses."),
+    ("Export", "NDJSON dump for scripts at /api/export."),
+    ("Backtest", "Toy evaluation at /api/backtest."),
+    ("Burst", "Fast simulation at /api/sim/burst."),
+]
+
+
+class Storage:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def save_json(self, name: str, obj: Any) -> Path:
+        safe = "".join(c for c in name if c.isalnum() or c in ("-", "_", "."))[:80] or "data"
+        p = (self.root / f"{safe}.json").resolve()
+        p.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+        return p
+
+    def load_json(self, name: str) -> Any:
+        safe = "".join(c for c in name if c.isalnum() or c in ("-", "_", "."))[:80] or "data"
+        p = (self.root / f"{safe}.json").resolve()
+        if not p.exists():
+            raise FileNotFoundError(str(p))
+        return json.loads(p.read_text(encoding="utf-8"))
+
+
+def _pulses_from_json(items: List[Dict[str, Any]]) -> List[Pulse]:
+    out: List[Pulse] = []
+    for it in items:
+        out.append(
+            Pulse(
+                epoch=int(it["epoch"]),
+                at=float(it.get("at", time.time())),
+                median_price=float(it.get("medianPrice", it.get("median_price", 0.0))),
+                bull_bps=int(it.get("bullScoreBps", it.get("bull_bps", 0))),
+                vol_bps=int(it.get("volScoreBps", it.get("vol_bps", 0))),
+                mood_bps=int(it.get("moodScoreBps", it.get("mood_bps", 0))),
+                reveals=int(it.get("revealsUsed", it.get("reveals", 1))),
+                pulse_hash=str(it.get("pulseHash", it.get("pulse_hash", "0x"))),
+            )
+        )
+    return out
+
+
+def _pulses_to_json(items: List[Pulse]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "epoch": p.epoch,
+            "at": p.at,
+            "atIso": _utc_iso(p.at),
+            "medianPrice": p.median_price,
+            "bullScoreBps": p.bull_bps,
+            "volScoreBps": p.vol_bps,
