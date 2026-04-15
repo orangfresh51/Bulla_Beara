@@ -943,3 +943,66 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 self._json(200, Backtester.run(pulses, enter=enter, exit=exit_, vol_guard=guard))
                 return
+            if path == "/api/export":
+                # export pulses as JSON lines for easy local analysis
+                limit = int(qs.get("limit", "2000"))
+                items = self.server.book.pulses(limit).get("pulses", [])
+                body = "\n".join(json.dumps(x, ensure_ascii=False) for x in items).encode("utf-8")
+                self._send(200, body, "application/x-ndjson; charset=utf-8")
+                return
+            if path == "/api/help":
+                self._send(200, HELP_TEXT.encode("utf-8"), "text/plain; charset=utf-8")
+                return
+            if path == "/api/load":
+                name = qs.get("name", "pulses")
+                obj = self.server.storage.load_json(name)
+                items = obj.get("pulses", []) if isinstance(obj, dict) else obj
+                pulses = _pulses_from_json(items if isinstance(items, list) else [])
+                # merge into book
+                with self.server.book._lock:
+                    self.server.book._pulses = pulses[-6000:]
+                self._json(200, {"ok": True, "loaded": len(pulses)})
+                return
+            if path == "/":
+                self._serve_file("Analyz/index.html")
+                return
+            if path.startswith("/static/"):
+                self._serve_file(path.lstrip("/"))
+                return
+            # fallback to index for SPA-ish behavior
+            if self._try_serve(path):
+                return
+            self._serve_file("Analyz/index.html")
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e), "trace": traceback.format_exc().splitlines()[-8:]})
+
+    def do_POST(self) -> None:
+        try:
+            path, _qs = self._path()
+            if path == "/api/sim/step":
+                p = self.server.book.sim_step()
+                self._json(200, {"ok": True, "pulse": (self.server.book._pulse_json(p) if p else None)})
+                return
+            if path == "/api/ingest":
+                obj = self._read_json() or {}
+                price = float(obj.get("price", 0.0))
+                volume = float(obj.get("volume", 0.0))
+                mood = float(obj.get("moodBps", obj.get("mood", 5000.0)))
+                epoch = obj.get("epoch", None)
+                epoch_i = int(epoch) if epoch is not None else None
+                if price <= 0.0:
+                    self._json(400, {"ok": False, "error": "price must be >0"})
+                    return
+                p = self.server.book.ingest(price, volume, mood, epoch=epoch_i)
+                self._json(200, {"ok": True, "pulse": self.server.book._pulse_json(p)})
+                return
+            if path == "/api/sim/burst":
+                obj = self._read_json() or {}
+                n = int(obj.get("n", 50))
+                n = max(1, min(n, 5000))
+                made = 0
+                last = None
+                for _ in range(n):
+                    last = self.server.book.sim_step()
+                    if last is not None:
+                        made += 1
