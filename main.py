@@ -1069,3 +1069,65 @@ def _parse_flags(argv: List[str]) -> Dict[str, str]:
         t = a[2:]
         if "=" in t:
             k, v = t.split("=", 1)
+            out[k.strip()] = v.strip()
+        else:
+            out[t.strip()] = "1"
+    return out
+
+
+def main(argv: List[str]) -> int:
+    flags = _parse_flags(argv)
+    port = int(flags.get("port", "8899"))
+    host = flags.get("host", "127.0.0.1")
+    min_reveals = int(flags.get("minReveals", "5"))
+
+    here = Path(__file__).resolve().parent
+    web_root = (here.parent / "Analyz").resolve()
+    # We'll serve from the Bull_Time root so /Analyz/index.html exists.
+    root = here.parent.resolve()
+
+    seed = _sha256(f"{APP}|{BUILD}|{MOTTO}|{time.time()}|{secrets.token_hex(8)}".encode())
+    book = PulseBook(seed, min_reveals=min_reveals)
+
+    server = ApiServer((host, port), Handler, book=book, web_root=root)
+
+    print("")
+    print(f"{APP}  ({STYLE})")
+    print(f"build: {BUILD}")
+    print(f"motto: {MOTTO}")
+    print(f"host: {host}  port: {port}")
+    print("endpoints: /api/health /api/state /api/pulses /api/sim/step /api/ingest")
+    print("ui: /  (serves Analyz)")
+    print("")
+
+    # background simulator option
+    if flags.get("autosim", "1") == "1":
+        hz = float(flags.get("hz", "4.2"))
+        stop = threading.Event()
+
+        def _loop() -> None:
+            dt = 1.0 / max(0.1, hz)
+            while not stop.is_set():
+                try:
+                    book.sim_step()
+                except Exception:
+                    pass
+                time.sleep(dt)
+
+        th = threading.Thread(target=_loop, name="bb-autosim", daemon=True)
+        th.start()
+
+    try:
+        server.serve_forever(poll_interval=0.25)
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        try:
+            server.server_close()
+        except Exception:
+            pass
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
